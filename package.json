@@ -1,0 +1,24 @@
+{
+  "name": "whatsapp-multi-session-bot",
+  "version": "1.0.0",
+  "description": "Bot de WhatsApp multi-sesión con integración de Google Sheets y visualización de QR por web.",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.2",
+    "express": "^4.19.2",
+    "googleapis": "^137.1.0",
+    "pino": "^8.21.0",
+    "qrcode": "^1.5.3",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "Jonathan Encina",
+  "license": "ISC"
+}
