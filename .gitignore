@@ -1,0 +1,8 @@
+# Archivo de credenciales de Google API (¡NUNCA SUBIR ESTO!)
+credentials.json
+
+# También es bueno ignorar:
+node_modules/
+baileys_auth_*/
+*.log
+.env
