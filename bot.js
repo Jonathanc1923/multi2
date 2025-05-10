@@ -1,4 +1,4 @@
-// bot.js (Versión completa con servidor web para QR)
+// bot.js (Versión con servidor web Y reconexión explícita)
 
 const {
     default: makeWASocket,
@@ -10,24 +10,15 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 const { Boom } = require('@hapi/boom');
-// const qrcodeTerminal = require('qrcode-terminal'); // Ya no lo imprimiremos en terminal principalmente
+const express = require('express');
+const qrcodePackage = require('qrcode'); 
+const qrcodeTerminal = require('qrcode-terminal'); // Para QR en terminal
 const scheduler = require('./googleSheetScheduler');
 
-// ----- NUEVOS REQUIRES -----
-const express = require('express');
-const qrcodePackage = require('qrcode'); // Para generar DataURLs de QR
-// ----- FIN NUEVOS REQUIRES -----
+let activeQRCodes = {}; 
+let sessionStatuses = {}; 
 
-// ----- ALMACENAMIENTO GLOBAL PARA QRs Y ESTADOS -----
-let activeQRCodes = {}; // { sessionId: qrString }
-let sessionStatuses = {}; // { sessionId: statusMessage }
-// ----- FIN ALMACENAMIENTO GLOBAL -----
-
-
-// --- Configuración de las Sesiones y Palabras Clave ---
 const sessionsConfig = [
-    // ... (Tu sessionsConfig exactamente como la tenías, con los spreadsheetId, etc. para Jony Lager y Album Magico)
-    // Ejemplo de una entrada (asegúrate que las tuyas estén completas):
     {
         id: 'jony_lager',
         name: 'Jony Lager',
@@ -48,7 +39,7 @@ const sessionsConfig = [
         photosFolderPath: 'D:/botwsp general multiples sesiones/respuestas/album magico/fotos',
         spreadsheetId: '1DHQildo2Jewb6Ib9HgdcxS6VY_4Sx0Kg0GzHEUEONFU', 
         sheetNameAndRange: 'Hoja1!A:C', 
-        dayLimitConfig: [ { limit: 5 }, { limit: 4 }, { limit: 2 } ],
+        dayLimitConfig: [ { limit: 5 }, { limit: 4 }, { limit: 2 } ], 
         schedulerWelcomeMessage: "🌟 ¡Hola! 🌟 Estos son los horarios mágicos que tenemos para tu sesión:\n\n",
         schedulerBookingQuestion: "📸 ¿Qué horario eliges para capturar tus momentos? ✨ ¡Espero tu elección!",
         schedulerNoSlotsMessage: "😥 Ups! Parece que todos nuestros horarios mágicos están ocupados por el momento. ¡Consulta más tarde! 🧚‍♀️",
@@ -59,45 +50,39 @@ const sessionsConfig = [
 const infoKeywords = ["info", "cupo", "información", "informacion"];
 const schedulerKeywords = ["reservar", "horarios", "agenda", "disponibilidad", "cita", "programar", "ver horarios"];
 
-// --- Funciones Auxiliares (normalizeText, containsInfoKeyword, containsSchedulerKeyword) ---
-// ... (Estas funciones permanecen igual que en tu código anterior) ...
 function normalizeText(text) {
     if (!text) return '';
-    return text.toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "");
+    return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
-
 function containsInfoKeyword(messageText) {
     const normalizedMsg = normalizeText(messageText);
     return infoKeywords.some(keyword => normalizedMsg.includes(normalizeText(keyword)));
 }
-
 function containsSchedulerKeyword(messageText) {
     const normalizedMsg = normalizeText(messageText);
     return schedulerKeywords.some(keyword => normalizedMsg.includes(normalizeText(keyword)));
 }
 
-// --- Lógica Principal del Bot ---
 async function startSession(sessionConfig) {
-    const logger = pino({ level: 'silent' });
+    const logger = pino({ level: 'info' }); 
     const authFolderPath = path.join(__dirname, `baileys_auth_${sessionConfig.id}`);
+    
     if (!fs.existsSync(authFolderPath)) {
         fs.mkdirSync(authFolderPath, { recursive: true });
+        console.log(`[${sessionConfig.name}] Creada carpeta de autenticación: ${authFolderPath}`);
     }
+    
     const { state, saveCreds } = await useMultiFileAuthState(authFolderPath);
 
-    // Inicializar estado de la sesión
-    sessionStatuses[sessionConfig.id] = 'Iniciando... 🤔';
+    sessionStatuses[sessionConfig.id] = 'Iniciando conexión... 🤔';
+    console.log(`[${sessionConfig.name}] Iniciando sesión (ID: ${sessionConfig.id}). Carpeta de Auth: ${authFolderPath}`);
 
     const sock = makeWASocket({
         logger,
-        printQRInTerminal: false, // Ya no necesitamos esto si usamos la web
+        printQRInTerminal: false,
         auth: state,
         browser: [`Bot ${sessionConfig.name} (${sessionConfig.id})`, "Chrome", "Personalizado"],
     });
-
-    console.log(`[${sessionConfig.name}] Iniciando sesión (ID: ${sessionConfig.id})...`);
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -107,8 +92,10 @@ async function startSession(sessionConfig) {
         if (qr) {
             activeQRCodes[sessionId] = qr;
             sessionStatuses[sessionId] = '📱 Escanea el código QR con WhatsApp.';
-            console.log(`[${sessionName}] Código QR generado para ${sessionId}. Disponible en la página web.`);
-            // qrcodeTerminal.generate(qr, { small: true }); // Comentado: Usar interfaz web
+            console.log(`[${sessionName}] Código QR generado para ${sessionId}. String: ${qr.substring(0,50)}... Disponible en la página web Y EN TERMINAL.`);
+            qrcodeTerminal.generate(qr, { small: true }, (qrAscii) => {
+                console.log(`\nQR para ${sessionName} (escanear desde la web si la terminal lo distorsiona):\n${qrAscii}\n`);
+            });
         }
 
         if (connection === 'open') {
@@ -116,39 +103,39 @@ async function startSession(sessionConfig) {
             sessionStatuses[sessionId] = 'Conectado ✅ ¡Listo para trabajar!';
             console.log(`[${sessionName}] Conexión abierta para ${sessionId}. QR limpiado.`);
         } else if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const statusCode = lastDisconnect?.error instanceof Boom ? lastDisconnect.error.output.statusCode : null;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             
-            if (statusCode === DisconnectReason.loggedOut) {
-                activeQRCodes[sessionId] = null;
-                sessionStatuses[sessionId] = '⚠️ Sesión cerrada (logged out). Elimina la carpeta de autenticación (`baileys_auth_' + sessionId + '`) y reinicia el bot para obtener un nuevo QR.';
-                console.log(`[${sessionName}] Sesión cerrada (logged out) para ${sessionId}. QR limpiado.`);
-                // Podrías intentar limpiar la carpeta de auth aquí, pero es más seguro hacerlo manualmente.
-                // if (fs.existsSync(authFolderPath)) {
-                //     console.log(`[${sessionName}] Intentando eliminar carpeta de autenticación: ${authFolderPath}`);
-                //     fs.rmSync(authFolderPath, { recursive: true, force: true });
-                // }
-            } else if (shouldReconnect) {
-                sessionStatuses[sessionId] = `🔴 Desconectado. Reintentando conectar... (Razón: ${lastDisconnect?.error?.message || 'Desconocida'})`;
-                console.log(`[${sessionName}] Desconectado, reintentando para ${sessionId}.`);
+            console.log(`[${sessionName}] Conexión cerrada para ${sessionId}. Razón: ${DisconnectReason[statusCode] || 'Desconocida'} (${statusCode}), Error: ${lastDisconnect?.error?.message || 'N/A'}. Reintentar: ${shouldReconnect}`);
+
+            if (shouldReconnect) {
+                sessionStatuses[sessionId] = `🔴 Desconectado (${DisconnectReason[statusCode] || statusCode}). Reintentando conectar...`;
+                console.log(`[${sessionName}] Reintentando iniciar sesión para ${sessionId} en 5 segundos...`);
+                await new Promise(resolve => setTimeout(resolve, 5000)); // Pausa
+                await startSession(sessionConfig); // <--- REINTENTO EXPLÍCITO LLAMANDO A startSession DE NUEVO
             } else {
-                sessionStatuses[sessionId] = `🟥 Desconectado permanentemente. (Razón: ${lastDisconnect?.error?.message || 'Desconocida'})`;
                 activeQRCodes[sessionId] = null; 
-                console.log(`[${sessionName}] Desconectado permanentemente para ${sessionId}.`);
+                if (statusCode === DisconnectReason.loggedOut) {
+                    sessionStatuses[sessionId] = '⚠️ Sesión cerrada (logged out). Elimina la carpeta de autenticación y reinicia el bot para obtener un nuevo QR.';
+                    console.log(`[${sessionName}] Se requiere eliminar la carpeta de autenticación y reiniciar para obtener un nuevo QR.`);
+                } else {
+                    sessionStatuses[sessionId] = `🟥 Desconectado permanentemente (${DisconnectReason[statusCode] || statusCode}). No se reintentará.`;
+                    console.log(`[${sessionName}] Desconectado permanentemente para ${sessionId}.`);
+                }
             }
         }
     });
 
     sock.ev.on('creds.update', saveCreds);
-
     sock.ev.on('messages.upsert', async (m) => {
-        // ... (Tu lógica existente de messages.upsert va aquí SIN CAMBIOS)
-        // Esta es la parte que maneja los mensajes "reservar", "info", etc.
-        // Asegúrate de que esta sección esté completa y correcta como la tenías.
-        // Ejemplo de cómo empezaría:
+        // ... (LA LÓGICA DE messages.upsert EXACTAMENTE IGUAL QUE EN LA RESPUESTA ANTERIOR)
+        // Esta parte es larga, así que asegúrate de copiarla de la respuesta anterior donde te di el bot.js completo.
+        // Incluye la sección: if (!m.messages || m.messages.length === 0) return;
+        // hasta el final del listener de messages.upsert.
         if (!m.messages || m.messages.length === 0) return;
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return;
+
         const messageType = getContentType(msg.message);
         let receivedText = '';
         if (messageType === 'conversation') receivedText = msg.message.conversation;
@@ -158,9 +145,8 @@ async function startSession(sessionConfig) {
             console.log(`[${sessionConfig.name}] Mensaje de ${msg.key.remoteJid}: "${receivedText}"`);
             const remoteJid = msg.key.remoteJid;
 
-            // LÓGICA PARA HORARIOS
             if (sessionConfig.spreadsheetId && sessionConfig.sheetNameAndRange && containsSchedulerKeyword(receivedText)) {
-                console.log(`[${sessionConfig.name}] Palabra clave de horario detectada. Consultando spreadsheet: ${sessionConfig.spreadsheetId}`);
+                console.log(`[${sessionConfig.name}] Palabra clave de horario detectada. Consultando: ${sessionConfig.spreadsheetId}`);
                 try {
                     const slots = await scheduler.getAvailableSlots(
                         sessionConfig.spreadsheetId,
@@ -208,9 +194,7 @@ async function startSession(sessionConfig) {
                 return; 
             }
 
-            // LÓGICA PARA INFO Y FOTOS
             if (containsInfoKeyword(receivedText)) {
-                // ... (Tu código para INFO y FOTOS aquí) ...
                 console.log(`[${sessionConfig.name}] Palabra clave de INFO detectada.`);
                 try {
                     const infoFilePath = sessionConfig.infoFilePath;
@@ -218,6 +202,7 @@ async function startSession(sessionConfig) {
                         const infoText = fs.readFileSync(infoFilePath, 'utf-8');
                         await sock.sendMessage(remoteJid, { text: infoText });
                     } else {
+                         console.warn(`[${sessionConfig.name}] Archivo de información no encontrado en: ${infoFilePath}`);
                         await sock.sendMessage(remoteJid, { text: `Info no encontrada para ${sessionConfig.name}.` });
                     }
                     const photosFolderPath = sessionConfig.photosFolderPath;
@@ -229,6 +214,8 @@ async function startSession(sessionConfig) {
                             await sock.sendMessage(remoteJid, { image: { url: imagePath } });
                             await new Promise(resolve => setTimeout(resolve, 1000));
                         }
+                    }  else {
+                        console.warn(`[${sessionConfig.name}] Carpeta de fotos no encontrada en: ${photosFolderPath}`);
                     }
                 } catch (error) {
                      console.error(`[${sessionConfig.name}] Error en INFO:`, error);
@@ -244,9 +231,10 @@ async function startSession(sessionConfig) {
 
 // --- SERVIDOR WEB EXPRESS PARA MOSTRAR QR Y ESTADOS ---
 const app = express();
-const PORT = process.env.PORT || 3000; // Render usa la variable de entorno PORT
+const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
+    // ... (HTML para la página de estado, igual que en la respuesta anterior)
     let html = `
         <!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Estado de Bots WhatsApp</title>
@@ -255,22 +243,25 @@ app.get('/', (req, res) => {
             .container { max-width: 800px; margin: 20px auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
             h1 { color: #2c3e50; text-align: center; margin-bottom: 30px; }
             ul { list-style-type: none; padding: 0; }
-            li { background-color: #f8f9fa; margin-bottom: 12px; padding: 15px 20px; border-radius: 6px; border-left: 5px solid #007bff; display: flex; justify-content: space-between; align-items: center; }
+            li { background-color: #f8f9fa; margin-bottom: 12px; padding: 15px 20px; border-radius: 6px; border-left: 5px solid #007bff; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+            li div:first-child { flex-basis: 70%; }
+            li div:last-child { flex-basis: 25%; text-align: right; }
             li strong { font-size: 1.1em; color: #34495e; }
-            .status { font-weight: bold; padding: 5px 10px; border-radius: 4px; color: white; }
-            .status-ok { background-color: #28a745; } /* Verde */
-            .status-qr { background-color: #ffc107; color: #333; } /* Amarillo */
-            .status-error { background-color: #dc3545; } /* Rojo */
-            .status-init { background-color: #6c757d; } /* Gris */
+            .status { font-weight: bold; padding: 5px 10px; border-radius: 4px; color: white; display: inline-block; margin-top: 5px;}
+            .status-ok { background-color: #28a745; }
+            .status-qr { background-color: #ffc107; color: #333; }
+            .status-error { background-color: #dc3545; }
+            .status-init { background-color: #6c757d; }
             a.qr-link { background-color: #007bff; color: white; padding: 8px 12px; border-radius: 4px; text-decoration: none; font-size: 0.9em; }
             a.qr-link:hover { background-color: #0056b3; }
             .footer { text-align: center; margin-top: 30px; font-size: 0.9em; color: #777; }
         </style>
-        <meta http-equiv="refresh" content="10"> </head><body><div class="container"><h1>Estado de Bots WhatsApp</h1><ul>
+        <meta http-equiv="refresh" content="10">
+        </head><body><div class="container"><h1>Estado de Bots WhatsApp</h1><ul>
     `;
     if (sessionsConfig && sessionsConfig.length > 0) {
         sessionsConfig.forEach(session => {
-            const statusMsg = sessionStatuses[session.id] || 'No Iniciado';
+            const statusMsg = sessionStatuses[session.id] || 'No Iniciado Aún';
             let statusClass = 'status-init';
             if (statusMsg.includes('Conectado')) statusClass = 'status-ok';
             else if (statusMsg.includes('Escanea') || statusMsg.includes('QR')) statusClass = 'status-qr';
@@ -294,6 +285,7 @@ app.get('/', (req, res) => {
 });
 
 app.get('/qr/:sessionId', async (req, res) => {
+    // ... (HTML para la página de QR individual, igual que en la respuesta anterior)
     const sessionId = req.params.sessionId;
     const session = sessionsConfig.find(s => s.id === sessionId);
     const sessionName = session ? session.name : sessionId;
@@ -304,8 +296,8 @@ app.get('/qr/:sessionId', async (req, res) => {
         <style>
             body { font-family: Arial, sans-serif; text-align: center; margin-top: 30px; background-color: #f0f0f0; }
             .qr-container { background-color: white; padding: 20px; border-radius: 8px; display: inline-block; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-            img { display: block; margin: 15px auto; }
-            textarea { width: 90%; max-width: 350px; margin-top: 10px; font-family: monospace; }
+            img { display: block; margin: 15px auto; border: 1px solid #ccc; }
+            textarea { width: 90%; max-width: 350px; margin-top: 10px; font-family: monospace; font-size: 0.8em; }
             p.status-msg { margin-top: 20px; font-size: 1.1em; }
             a { color: #007bff; text-decoration: none; margin-top:20px; display:inline-block;}
         </style>
@@ -314,17 +306,18 @@ app.get('/qr/:sessionId', async (req, res) => {
 
     if (qrString) {
         try {
-            const qrImage = await qrcodePackage.toDataURL(qrString, { width: 300 });
+            const qrImage = await qrcodePackage.toDataURL(qrString, { width: 280, margin: 2 });
             htmlResponse += `
                 <h2>Código QR para ${sessionName}</h2>
                 <p>Escanea este código con WhatsApp:</p>
                 <img src="${qrImage}" alt="Código QR para ${sessionName}"/>
-                <textarea rows="5" cols="40" readonly>${qrString}</textarea>
+                <details><summary>Ver string del QR</summary><textarea rows="4" cols="35" readonly>${qrString}</textarea></details>
                 <p class="status-msg" style="color: #E87500;">Este QR es temporal. La página se refrescará.</p>
-                <script>setTimeout(() => window.location.reload(), 20000);</script> `;
+                <script>setTimeout(() => window.location.reload(), 25000);</script> 
+            `;
         } catch (err) {
             console.error(`[WebQR] Error al generar imagen QR para ${sessionId}:`, err);
-            htmlResponse += `<h2 style="color:red;">Error al generar QR</h2><p>Revisa la consola del bot.</p>`;
+            htmlResponse += `<h2 style="color:red;">Error al generar QR</h2><p>Revisa la consola del bot.</p><script>setTimeout(() => window.location.reload(), 10000);</script>`;
         }
     } else {
         const status = sessionStatuses[sessionId] || 'Intentando conectar o ya conectado.';
@@ -340,7 +333,6 @@ app.get('/qr/:sessionId', async (req, res) => {
     res.send(htmlResponse);
 });
 
-
 // --- Ejecución Principal ---
 async function main() {
     console.log("Iniciando todos los bots de WhatsApp...");
@@ -349,9 +341,7 @@ async function main() {
         return;
     }
 
-    // Iniciar todas las sesiones de Baileys
     for (const config of sessionsConfig) {
-        // Inicializar estado para la UI web
         if (!sessionStatuses[config.id]) {
             sessionStatuses[config.id] = 'Pendiente de inicio...';
         }
@@ -363,20 +353,17 @@ async function main() {
         }
     }
     
-    // Iniciar el servidor Express DESPUÉS de configurar los listeners de Baileys (o en paralelo si no hay dependencias)
-    // En este caso, es mejor iniciarlo aquí para que las variables activeQRCodes y sessionStatuses estén disponibles.
-    app.listen(PORT, '0.0.0.0', () => { // Escuchar en 0.0.0.0 para Render
-        console.log(`Servidor web para QR y estados escuchando en http://localhost:${PORT} (o la URL de Render)`);
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Servidor web para QR y estados escuchando en http://localhost:${PORT} (o la URL pública en Render)`);
         console.log(`Accede a los QR en: /qr/<session_id> (ej. /qr/jony_lager)`);
         console.log(`Página de estado principal en: /`);
     });
 
-    console.log("Proceso de inicio de todas las sesiones Baileys completado.");
+    console.log("Proceso de inicio de sesiones Baileys lanzado.");
     console.log("El servidor web está corriendo para mostrar los QR y estados.");
 }
 
 main().catch(err => {
     console.error("Error FATAL en la ejecución principal del bot (main):", err);
-    // Asegurarse de que el proceso termine si hay un error fatal en main no capturado antes
     process.exit(1);
 });
