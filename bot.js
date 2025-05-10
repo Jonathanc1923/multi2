@@ -1,4 +1,4 @@
-// bot.js (Versión con servidor web Y reconexión explícita)
+// bot.js (Versión con rutas relativas para servidor)
 
 const {
     default: makeWASocket,
@@ -8,11 +8,11 @@ const {
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
-const path = require('path');
+const path = require('path'); // <--- ASEGÚRATE QUE ESTÉ ESTE REQUIRE
 const { Boom } = require('@hapi/boom');
 const express = require('express');
 const qrcodePackage = require('qrcode'); 
-const qrcodeTerminal = require('qrcode-terminal'); // Para QR en terminal
+const qrcodeTerminal = require('qrcode-terminal');
 const scheduler = require('./googleSheetScheduler');
 
 let activeQRCodes = {}; 
@@ -22,8 +22,8 @@ const sessionsConfig = [
     {
         id: 'jony_lager',
         name: 'Jony Lager',
-        infoFilePath: 'D:/botwsp general multiples sesiones/respuestas/jony lager/info.txt',
-        photosFolderPath: 'D:/botwsp general multiples sesiones/respuestas/jony lager/fotos',
+        infoFilePath: path.join(__dirname, 'respuestas', 'jony_lager', 'info.txt'), // RUTA RELATIVA
+        photosFolderPath: path.join(__dirname, 'respuestas', 'jony_lager', 'fotos'), // RUTA RELATIVA
         spreadsheetId: '1E-Vzmk-dPw4ko7C9uvpuVsp-mYxNio-33HaOmJvEM9A', 
         sheetNameAndRange: 'Hoja1!A:C',
         dayLimitConfig: [ { limit: 5 }, { limit: 4 }, { limit: 2 } ],
@@ -35,8 +35,8 @@ const sessionsConfig = [
     {
         id: 'album_magico',
         name: 'Album Magico',
-        infoFilePath: 'D:/botwsp general multiples sesiones/respuestas/album magico/info.txt',
-        photosFolderPath: 'D:/botwsp general multiples sesiones/respuestas/album magico/fotos',
+        infoFilePath: path.join(__dirname, 'respuestas', 'album_magico', 'info.txt'), // RUTA RELATIVA
+        photosFolderPath: path.join(__dirname, 'respuestas', 'album_magico', 'fotos'), // RUTA RELATIVA
         spreadsheetId: '1DHQildo2Jewb6Ib9HgdcxS6VY_4Sx0Kg0GzHEUEONFU', 
         sheetNameAndRange: 'Hoja1!A:C', 
         dayLimitConfig: [ { limit: 5 }, { limit: 4 }, { limit: 2 } ], 
@@ -112,7 +112,7 @@ async function startSession(sessionConfig) {
                 sessionStatuses[sessionId] = `🔴 Desconectado (${DisconnectReason[statusCode] || statusCode}). Reintentando conectar...`;
                 console.log(`[${sessionName}] Reintentando iniciar sesión para ${sessionId} en 5 segundos...`);
                 await new Promise(resolve => setTimeout(resolve, 5000)); // Pausa
-                await startSession(sessionConfig); // <--- REINTENTO EXPLÍCITO LLAMANDO A startSession DE NUEVO
+                await startSession(sessionConfig); // REINTENTO EXPLÍCITO
             } else {
                 activeQRCodes[sessionId] = null; 
                 if (statusCode === DisconnectReason.loggedOut) {
@@ -128,10 +128,10 @@ async function startSession(sessionConfig) {
 
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('messages.upsert', async (m) => {
-        // ... (LA LÓGICA DE messages.upsert EXACTAMENTE IGUAL QUE EN LA RESPUESTA ANTERIOR)
-        // Esta parte es larga, así que asegúrate de copiarla de la respuesta anterior donde te di el bot.js completo.
-        // Incluye la sección: if (!m.messages || m.messages.length === 0) return;
-        // hasta el final del listener de messages.upsert.
+        // ... (COPIA AQUÍ LA LÓGICA COMPLETA DE messages.upsert DE TU VERSIÓN ANTERIOR FUNCIONAL)
+        // Esta es la parte que maneja los mensajes "reservar", "info", etc.
+        // Asegúrate de que esta sección esté completa y correcta.
+        // Este es un placeholder, necesitas la lógica real:
         if (!m.messages || m.messages.length === 0) return;
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return;
@@ -145,6 +145,7 @@ async function startSession(sessionConfig) {
             console.log(`[${sessionConfig.name}] Mensaje de ${msg.key.remoteJid}: "${receivedText}"`);
             const remoteJid = msg.key.remoteJid;
 
+            // LÓGICA PARA HORARIOS
             if (sessionConfig.spreadsheetId && sessionConfig.sheetNameAndRange && containsSchedulerKeyword(receivedText)) {
                 console.log(`[${sessionConfig.name}] Palabra clave de horario detectada. Consultando: ${sessionConfig.spreadsheetId}`);
                 try {
@@ -194,28 +195,31 @@ async function startSession(sessionConfig) {
                 return; 
             }
 
+            // LÓGICA PARA INFO Y FOTOS
             if (containsInfoKeyword(receivedText)) {
                 console.log(`[${sessionConfig.name}] Palabra clave de INFO detectada.`);
                 try {
-                    const infoFilePath = sessionConfig.infoFilePath;
-                    if (fs.existsSync(infoFilePath)) {
-                        const infoText = fs.readFileSync(infoFilePath, 'utf-8');
+                    // Usar las rutas ya construidas con path.join
+                    const infoFilePathResolved = sessionConfig.infoFilePath; 
+                    if (fs.existsSync(infoFilePathResolved)) {
+                        const infoText = fs.readFileSync(infoFilePathResolved, 'utf-8');
                         await sock.sendMessage(remoteJid, { text: infoText });
                     } else {
-                         console.warn(`[${sessionConfig.name}] Archivo de información no encontrado en: ${infoFilePath}`);
+                         console.warn(`[${sessionConfig.name}] Archivo de información no encontrado en: ${infoFilePathResolved}`);
                         await sock.sendMessage(remoteJid, { text: `Info no encontrada para ${sessionConfig.name}.` });
                     }
-                    const photosFolderPath = sessionConfig.photosFolderPath;
-                    if (fs.existsSync(photosFolderPath)) {
-                        const files = fs.readdirSync(photosFolderPath);
+                    
+                    const photosFolderPathResolved = sessionConfig.photosFolderPath;
+                    if (fs.existsSync(photosFolderPathResolved)) {
+                        const files = fs.readdirSync(photosFolderPathResolved);
                         const imageFiles = files.filter(file => /\.(jpe?g|png)$/i.test(file));
                         for (const imageFile of imageFiles) {
-                            const imagePath = path.join(photosFolderPath, imageFile);
+                            const imagePath = path.join(photosFolderPathResolved, imageFile); // path.join aquí es correcto para el nombre del archivo individual
                             await sock.sendMessage(remoteJid, { image: { url: imagePath } });
                             await new Promise(resolve => setTimeout(resolve, 1000));
                         }
                     }  else {
-                        console.warn(`[${sessionConfig.name}] Carpeta de fotos no encontrada en: ${photosFolderPath}`);
+                        console.warn(`[${sessionConfig.name}] Carpeta de fotos no encontrada en: ${photosFolderPathResolved}`);
                     }
                 } catch (error) {
                      console.error(`[${sessionConfig.name}] Error en INFO:`, error);
@@ -235,6 +239,7 @@ const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
     // ... (HTML para la página de estado, igual que en la respuesta anterior)
+    // Por brevedad, no lo repito aquí, pero asegúrate que esté completo
     let html = `
         <!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Estado de Bots WhatsApp</title>
@@ -286,6 +291,7 @@ app.get('/', (req, res) => {
 
 app.get('/qr/:sessionId', async (req, res) => {
     // ... (HTML para la página de QR individual, igual que en la respuesta anterior)
+    // Por brevedad, no lo repito aquí, pero asegúrate que esté completo
     const sessionId = req.params.sessionId;
     const session = sessionsConfig.find(s => s.id === sessionId);
     const sessionName = session ? session.name : sessionId;
@@ -332,6 +338,7 @@ app.get('/qr/:sessionId', async (req, res) => {
     htmlResponse += `<br><a href="/">Volver al listado de sesiones</a></div></body></html>`;
     res.send(htmlResponse);
 });
+
 
 // --- Ejecución Principal ---
 async function main() {
