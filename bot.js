@@ -40,7 +40,7 @@ const sessionsConfig = [
         spreadsheetId: '1DHQildo2Jewb6Ib9HgdcxS6VY_4Sx0Kg0GzHEUEONFU', 
         sheetNameAndRange: 'Hoja1!A:C', 
         dayLimitConfig: [ { limit: 5 }, { limit: 4 }, { limit: 2 } ], 
-        schedulerWelcomeMessage: "🌟 ¡Hola! 🌟 Estos son los horarios mágicos que tenemos para tu sesión:\n\n",
+        schedulerWelcomeMessage: "🎉 ¡Claro que sí! 🎉 Aquí tienes los horarios que encontré especialmente para ti:\n\n",
         schedulerBookingQuestion: "📸 ¿Qué horario eliges para capturar tus momentos? ✨ ¡Espero tu elección!",
         schedulerNoSlotsMessage: "😥 Ups! Parece que todos nuestros horarios mágicos están ocupados por el momento. ¡Consulta más tarde! 🧚‍♀️",
         schedulerErrorMessage: "⚠️ ¡Ay! Hubo un pequeño duende travieso en el sistema de horarios."
