@@ -84,47 +84,138 @@ async function startSession(sessionConfig) {
         browser: [`Bot ${sessionConfig.name} (${sessionConfig.id})`, "Chrome", "Personalizado"],
     });
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        const sessionId = sessionConfig.id;
-        const sessionName = sessionConfig.name;
+    sock.ev.on('messages.upsert', async (m) => {
+    if (!m.messages || m.messages.length === 0) return;
+    const msg = m.messages[0];
+    if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return;
 
-        if (qr) {
-            activeQRCodes[sessionId] = qr;
-            sessionStatuses[sessionId] = '📱 Escanea el código QR con WhatsApp.';
-            console.log(`[${sessionName}] Código QR generado para ${sessionId}. String: ${qr.substring(0,50)}... Disponible en la página web Y EN TERMINAL.`);
-            qrcodeTerminal.generate(qr, { small: true }, (qrAscii) => {
-                console.log(`\nQR para ${sessionName} (escanear desde la web si la terminal lo distorsiona):\n${qrAscii}\n`);
-            });
-        }
+    const messageType = getContentType(msg.message);
+    let receivedText = '';
+    if (messageType === 'conversation') receivedText = msg.message.conversation;
+    else if (messageType === 'extendedTextMessage') receivedText = msg.message.extendedTextMessage.text;
 
-        if (connection === 'open') {
-            activeQRCodes[sessionId] = null;
-            sessionStatuses[sessionId] = 'Conectado ✅ ¡Listo para trabajar!';
-            console.log(`[${sessionName}] Conexión abierta para ${sessionId}. QR limpiado.`);
-        } else if (connection === 'close') {
-            const statusCode = lastDisconnect?.error instanceof Boom ? lastDisconnect.error.output.statusCode : null;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+    if (receivedText) {
+        console.log(`[${sessionConfig.name}] Mensaje de ${msg.key.remoteJid}: "${receivedText}"`);
+        const remoteJid = msg.key.remoteJid;
 
-            console.log(`[${sessionName}] Conexión cerrada para ${sessionId}. Razón: ${DisconnectReason[statusCode] || 'Desconocida'} (${statusCode}), Error: ${lastDisconnect?.error?.message || 'N/A'}. Reintentar: ${shouldReconnect}`);
+        // LÓGICA PARA HORARIOS
+        if (sessionConfig.spreadsheetId && sessionConfig.sheetNameAndRange && containsSchedulerKeyword(receivedText)) {
+            console.log(`[${sessionConfig.name}] Palabra clave de horario detectada para ${remoteJid}. Consultando: ${sessionConfig.spreadsheetId}`);
+            try {
+                // 1. Opcional: Enviar estado "escribiendo..."
+                await sock.sendPresenceUpdate('composing', remoteJid);
+                console.log(`[${sessionConfig.name}] Buscando horarios para ${remoteJid}...`);
 
-            if (shouldReconnect) {
-                sessionStatuses[sessionId] = `🔴 Desconectado (${DisconnectReason[statusCode] || statusCode}). Reintentando conectar...`;
-                console.log(`[${sessionName}] Reintentando iniciar sesión para ${sessionId} en 5 segundos...`);
-                await new Promise(resolve => setTimeout(resolve, 5000)); // Pausa
-                await startSession(sessionConfig); // REINTENTO EXPLÍCITO
-            } else {
-                activeQRCodes[sessionId] = null;
-                if (statusCode === DisconnectReason.loggedOut) {
-                    sessionStatuses[sessionId] = '⚠️ Sesión cerrada (logged out). Elimina la carpeta de autenticación y reinicia el bot para obtener un nuevo QR.';
-                    console.log(`[${sessionName}] Se requiere eliminar la carpeta de autenticación y reiniciar para obtener un nuevo QR.`);
+                // 2. Obtener los horarios (esto puede tomar algo de tiempo)
+                const slots = await scheduler.getAvailableSlots(
+                    sessionConfig.spreadsheetId,
+                    sessionConfig.sheetNameAndRange,
+                    sessionConfig.dayLimitConfig
+                );
+
+                // 3. Preparar el mensaje de respuesta
+                let responseText = '';
+                const welcomeMsg = sessionConfig.schedulerWelcomeMessage || "Horarios disponibles:\n\n";
+                const bookingQuestion = sessionConfig.schedulerBookingQuestion || "¿Cuál te gustaría reservar?";
+                const noSlotsMsg = sessionConfig.schedulerNoSlotsMessage || "No hay horarios disponibles.";
+                const errorMsgBase = sessionConfig.schedulerErrorMessage || "Error al buscar horarios.";
+
+                if (slots.error) {
+                    responseText = `${errorMsgBase} Detalles: ${slots.details}.`;
+                } else if (!slots || slots.length === 0) {
+                    responseText = noSlotsMsg;
                 } else {
-                    sessionStatuses[sessionId] = `🟥 Desconectado permanentemente (${DisconnectReason[statusCode] || statusCode}). No se reintentará.`;
-                    console.log(`[${sessionName}] Desconectado permanentemente para ${sessionId}.`);
+                    responseText = welcomeMsg;
+                    slots.forEach(dayInfo => {
+                        let dayEmoticon = "🗓️";
+                        const dayLower = dayInfo.day.toLowerCase();
+                        if (dayLower.includes("lunes")) dayEmoticon = "✅";
+                        else if (dayLower.includes("martes")) dayEmoticon = "✅";
+                        else if (dayLower.includes("miércoles") || dayLower.includes("miercoles")) dayEmoticon = "✅";
+                        else if (dayLower.includes("jueves")) dayEmoticon = "✅";
+                        else if (dayLower.includes("viernes")) dayEmoticon = "✅";
+                        else if (dayLower.includes("sábado") || dayLower.includes("sabado")) dayEmoticon = "✅";
+                        else if (dayLower.includes("domingo")) dayEmoticon = "✅";
+
+                        responseText += `${dayEmoticon} *${dayInfo.day}*:\n`;
+                        dayInfo.availableTimes.forEach(time => {
+                            responseText += `   🕒  \`${time}\`\n`;
+                        });
+                        responseText += '\n';
+                    });
+                    responseText += bookingQuestion;
                 }
+                
+                console.log(`[${sessionConfig.name}] Horarios preparados para ${remoteJid}. Iniciando demora de 10 segundos.`);
+
+                // 4. Esperar 10 segundos (10000 milisegundos)
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                
+                console.log(`[${sessionConfig.name}] Demora completada. Enviando horarios a ${remoteJid}.`);
+
+                // 5. Opcional: Cambiar estado a "pausado"
+                await sock.sendPresenceUpdate('paused', remoteJid);
+                
+                // 6. Enviar el mensaje
+                await sock.sendMessage(remoteJid, { text: responseText });
+                console.log(`[${sessionConfig.name}] Respuesta de horarios enviada a ${remoteJid}`);
+
+            } catch (error) {
+                await sock.sendPresenceUpdate('paused', remoteJid); // Asegura que se limpie el "escribiendo" en caso de error
+                console.error(`[${sessionConfig.name}] Error CRÍTICO al procesar horarios para ${remoteJid}:`, error);
+                const errorMsgBaseCatch = sessionConfig.schedulerErrorMessage || "Error inesperado.";
+                await sock.sendMessage(remoteJid, { text: `${errorMsgBaseCatch} Intenta de nuevo.` });
             }
+            return; // Importante para no procesar otras lógicas
         }
-    });
+
+        // LÓGICA PARA INFO Y FOTOS (esta ya tenía la demora)
+        if (containsInfoKeyword(receivedText)) {
+            console.log(`[${sessionConfig.name}] Palabra clave de INFO detectada para ${remoteJid}.`);
+            try {
+                await sock.sendPresenceUpdate('composing', remoteJid);
+                console.log(`[${sessionConfig.name}] Esperando 10 segundos antes de responder INFO a ${remoteJid}...`);
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                await sock.sendPresenceUpdate('paused', remoteJid);
+                console.log(`[${sessionConfig.name}] Demora completada. Enviando info a ${remoteJid}.`);
+
+                const infoFilePathResolved = sessionConfig.infoFilePath;
+                if (fs.existsSync(infoFilePathResolved)) {
+                    const infoText = fs.readFileSync(infoFilePathResolved, 'utf-8');
+                    await sock.sendMessage(remoteJid, { text: infoText });
+                    console.log(`[${sessionConfig.name}] Texto de info enviado a ${remoteJid}.`);
+                } else {
+                    console.warn(`[${sessionConfig.name}] Archivo de información no encontrado en: ${infoFilePathResolved}`);
+                    await sock.sendMessage(remoteJid, { text: `Lo siento, no pude encontrar la información solicitada para ${sessionConfig.name}.` });
+                }
+
+                const photosFolderPathResolved = sessionConfig.photosFolderPath;
+                if (fs.existsSync(photosFolderPathResolved)) {
+                    const files = fs.readdirSync(photosFolderPathResolved);
+                    const imageFiles = files.filter(file => /\.(jpe?g|png)$/i.test(file));
+                    if (imageFiles.length > 0) {
+                         console.log(`[${sessionConfig.name}] Enviando ${imageFiles.length} foto(s) a ${remoteJid}.`);
+                    }
+                    for (const imageFile of imageFiles) {
+                        const imagePath = path.join(photosFolderPathResolved, imageFile);
+                        await sock.sendMessage(remoteJid, { image: { url: imagePath } });
+                        await new Promise(resolve => setTimeout(resolve, 1000)); // Pequeña pausa entre fotos
+                    }
+                    if (imageFiles.length > 0) {
+                       console.log(`[${sessionConfig.name}] Todas las fotos enviadas a ${remoteJid}.`);
+                    }
+                } else {
+                    console.warn(`[${sessionConfig.name}] Carpeta de fotos no encontrada en: ${photosFolderPathResolved}`);
+                }
+            } catch (error) {
+                await sock.sendPresenceUpdate('paused', remoteJid);
+                console.error(`[${sessionConfig.name}] Error procesando INFO para ${remoteJid}:`, error);
+                await sock.sendMessage(remoteJid, { text: 'Hubo un error al procesar tu solicitud de información. Por favor, intenta más tarde.' });
+            }
+            return; // Importante
+        }
+    }
+});
 
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('messages.upsert', async (m) => {
