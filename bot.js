@@ -11,12 +11,12 @@ const fs = require('fs');
 const path = require('path'); // <--- ASEGÚRATE QUE ESTÉ ESTE REQUIRE
 const { Boom } = require('@hapi/boom');
 const express = require('express');
-const qrcodePackage = require('qrcode'); 
+const qrcodePackage = require('qrcode');
 const qrcodeTerminal = require('qrcode-terminal');
 const scheduler = require('./googleSheetScheduler');
 
-let activeQRCodes = {}; 
-let sessionStatuses = {}; 
+let activeQRCodes = {};
+let sessionStatuses = {};
 
 const sessionsConfig = [
     {
@@ -24,7 +24,7 @@ const sessionsConfig = [
         name: 'Jony Lager',
         infoFilePath: path.join(__dirname, 'respuestas', 'jony_lager', 'info.txt'), // RUTA RELATIVA
         photosFolderPath: path.join(__dirname, 'respuestas', 'jony_lager', 'fotos'), // RUTA RELATIVA
-        spreadsheetId: '1E-Vzmk-dPw4ko7C9uvpuVsp-mYxNio-33HaOmJvEM9A', 
+        spreadsheetId: '1E-Vzmk-dPw4ko7C9uvpuVsp-mYxNio-33HaOmJvEM9A',
         sheetNameAndRange: 'Hoja1!A:C',
         dayLimitConfig: [ { limit: 5 }, { limit: 4 }, { limit: 2 } ],
         schedulerWelcomeMessage: "🎉 ¡Claro que sí! 🎉 Aquí tienes los horarios que encontré especialmente para ti:\n\n",
@@ -37,9 +37,9 @@ const sessionsConfig = [
         name: 'Album Magico',
         infoFilePath: path.join(__dirname, 'respuestas', 'album_magico', 'info.txt'), // RUTA RELATIVA
         photosFolderPath: path.join(__dirname, 'respuestas', 'album_magico', 'fotos'), // RUTA RELATIVA
-        spreadsheetId: '1DHQildo2Jewb6Ib9HgdcxS6VY_4Sx0Kg0GzHEUEONFU', 
-        sheetNameAndRange: 'Hoja1!A:C', 
-        dayLimitConfig: [ { limit: 5 }, { limit: 4 }, { limit: 2 } ], 
+        spreadsheetId: '1DHQildo2Jewb6Ib9HgdcxS6VY_4Sx0Kg0GzHEUEONFU',
+        sheetNameAndRange: 'Hoja1!A:C',
+        dayLimitConfig: [ { limit: 5 }, { limit: 4 }, { limit: 2 } ],
         schedulerWelcomeMessage: "🎉 ¡Claro que sí! 🎉 Aquí tienes los horarios que encontré especialmente para ti:\n\n",
         schedulerBookingQuestion: "📸 ¿Qué horario eliges para capturar tus momentos? ✨ ¡Espero tu elección!",
         schedulerNoSlotsMessage: "😥 Ups! Parece que todos nuestros horarios mágicos están ocupados por el momento. ¡Consulta más tarde! 🧚‍♀️",
@@ -64,14 +64,14 @@ function containsSchedulerKeyword(messageText) {
 }
 
 async function startSession(sessionConfig) {
-    const logger = pino({ level: 'info' }); 
+    const logger = pino({ level: 'info' });
     const authFolderPath = path.join(__dirname, `baileys_auth_${sessionConfig.id}`);
-    
+
     if (!fs.existsSync(authFolderPath)) {
         fs.mkdirSync(authFolderPath, { recursive: true });
         console.log(`[${sessionConfig.name}] Creada carpeta de autenticación: ${authFolderPath}`);
     }
-    
+
     const { state, saveCreds } = await useMultiFileAuthState(authFolderPath);
 
     sessionStatuses[sessionConfig.id] = 'Iniciando conexión... 🤔';
@@ -99,13 +99,13 @@ async function startSession(sessionConfig) {
         }
 
         if (connection === 'open') {
-            activeQRCodes[sessionId] = null; 
+            activeQRCodes[sessionId] = null;
             sessionStatuses[sessionId] = 'Conectado ✅ ¡Listo para trabajar!';
             console.log(`[${sessionName}] Conexión abierta para ${sessionId}. QR limpiado.`);
         } else if (connection === 'close') {
             const statusCode = lastDisconnect?.error instanceof Boom ? lastDisconnect.error.output.statusCode : null;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            
+
             console.log(`[${sessionName}] Conexión cerrada para ${sessionId}. Razón: ${DisconnectReason[statusCode] || 'Desconocida'} (${statusCode}), Error: ${lastDisconnect?.error?.message || 'N/A'}. Reintentar: ${shouldReconnect}`);
 
             if (shouldReconnect) {
@@ -114,7 +114,7 @@ async function startSession(sessionConfig) {
                 await new Promise(resolve => setTimeout(resolve, 5000)); // Pausa
                 await startSession(sessionConfig); // REINTENTO EXPLÍCITO
             } else {
-                activeQRCodes[sessionId] = null; 
+                activeQRCodes[sessionId] = null;
                 if (statusCode === DisconnectReason.loggedOut) {
                     sessionStatuses[sessionId] = '⚠️ Sesión cerrada (logged out). Elimina la carpeta de autenticación y reinicia el bot para obtener un nuevo QR.';
                     console.log(`[${sessionName}] Se requiere eliminar la carpeta de autenticación y reiniciar para obtener un nuevo QR.`);
@@ -128,10 +128,6 @@ async function startSession(sessionConfig) {
 
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('messages.upsert', async (m) => {
-        // ... (COPIA AQUÍ LA LÓGICA COMPLETA DE messages.upsert DE TU VERSIÓN ANTERIOR FUNCIONAL)
-        // Esta es la parte que maneja los mensajes "reservar", "info", etc.
-        // Asegúrate de que esta sección esté completa y correcta.
-        // Este es un placeholder, necesitas la lógica real:
         if (!m.messages || m.messages.length === 0) return;
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast') return;
@@ -149,6 +145,7 @@ async function startSession(sessionConfig) {
             if (sessionConfig.spreadsheetId && sessionConfig.sheetNameAndRange && containsSchedulerKeyword(receivedText)) {
                 console.log(`[${sessionConfig.name}] Palabra clave de horario detectada. Consultando: ${sessionConfig.spreadsheetId}`);
                 try {
+                    await sock.sendPresenceUpdate('composing', remoteJid); // Opcional: "escribiendo..."
                     const slots = await scheduler.getAvailableSlots(
                         sessionConfig.spreadsheetId,
                         sessionConfig.sheetNameAndRange,
@@ -167,7 +164,7 @@ async function startSession(sessionConfig) {
                     } else {
                         responseText = welcomeMsg;
                         slots.forEach(dayInfo => {
-                            let dayEmoticon = "🗓️"; 
+                            let dayEmoticon = "🗓️";
                             const dayLower = dayInfo.day.toLowerCase();
                             if (dayLower.includes("lunes")) dayEmoticon = "✅";
                             else if (dayLower.includes("martes")) dayEmoticon = "✅";
@@ -179,52 +176,79 @@ async function startSession(sessionConfig) {
 
                             responseText += `${dayEmoticon} *${dayInfo.day}*:\n`;
                             dayInfo.availableTimes.forEach(time => {
-                                responseText += `  🕒  \`${time}\`\n`;
+                                responseText += `   🕒  \`${time}\`\n`;
                             });
                             responseText += '\n';
                         });
                         responseText += bookingQuestion;
                     }
+                    await sock.sendPresenceUpdate('paused', remoteJid); // Opcional: deja de "escribir"
                     await sock.sendMessage(remoteJid, { text: responseText });
                     console.log(`[${sessionConfig.name}] Respuesta de horarios enviada a ${remoteJid}`);
                 } catch (error) {
+                    await sock.sendPresenceUpdate('paused', remoteJid); // Asegura que se limpie el "escribiendo"
                     console.error(`[${sessionConfig.name}] Error CRÍTICO al procesar horarios:`, error);
                     const errorMsgBaseCatch = sessionConfig.schedulerErrorMessage || "Error inesperado.";
                     await sock.sendMessage(remoteJid, { text: `${errorMsgBaseCatch} Intenta de nuevo.` });
                 }
-                return; 
+                return;
             }
 
             // LÓGICA PARA INFO Y FOTOS
             if (containsInfoKeyword(receivedText)) {
-                console.log(`[${sessionConfig.name}] Palabra clave de INFO detectada.`);
+                console.log(`[${sessionConfig.name}] Palabra clave de INFO detectada para ${remoteJid}.`);
+
+                // -------- INICIO DE CAMBIO: AÑADIR DELAY --------
                 try {
-                    // Usar las rutas ya construidas con path.join
-                    const infoFilePathResolved = sessionConfig.infoFilePath; 
+                    // 1. Opcional: Enviar estado "escribiendo..." para feedback visual
+                    await sock.sendPresenceUpdate('composing', remoteJid);
+                    console.log(`[${sessionConfig.name}] Esperando 10 segundos antes de responder a ${remoteJid}...`);
+
+                    // 2. Esperar 10 segundos (10000 milisegundos)
+                    await new Promise(resolve => setTimeout(resolve, 10000));
+
+                    // 3. Opcional: Cambiar estado a "pausado" (o dejar que expire el "composing")
+                    await sock.sendPresenceUpdate('paused', remoteJid);
+                    console.log(`[${sessionConfig.name}] Demora completada. Enviando info a ${remoteJid}.`);
+
+                // -------- FIN DE CAMBIO: AÑADIR DELAY --------
+
+                    // Continuación de tu lógica original para enviar info y fotos
+                    const infoFilePathResolved = sessionConfig.infoFilePath;
                     if (fs.existsSync(infoFilePathResolved)) {
                         const infoText = fs.readFileSync(infoFilePathResolved, 'utf-8');
                         await sock.sendMessage(remoteJid, { text: infoText });
+                        console.log(`[${sessionConfig.name}] Texto de info enviado a ${remoteJid}.`);
                     } else {
-                         console.warn(`[${sessionConfig.name}] Archivo de información no encontrado en: ${infoFilePathResolved}`);
-                        await sock.sendMessage(remoteJid, { text: `Info no encontrada para ${sessionConfig.name}.` });
+                        console.warn(`[${sessionConfig.name}] Archivo de información no encontrado en: ${infoFilePathResolved}`);
+                        await sock.sendMessage(remoteJid, { text: `Lo siento, no pude encontrar la información solicitada para ${sessionConfig.name}.` });
                     }
-                    
+
                     const photosFolderPathResolved = sessionConfig.photosFolderPath;
                     if (fs.existsSync(photosFolderPathResolved)) {
                         const files = fs.readdirSync(photosFolderPathResolved);
                         const imageFiles = files.filter(file => /\.(jpe?g|png)$/i.test(file));
+                        if (imageFiles.length > 0) {
+                             console.log(`[${sessionConfig.name}] Enviando ${imageFiles.length} foto(s) a ${remoteJid}.`);
+                        }
                         for (const imageFile of imageFiles) {
-                            const imagePath = path.join(photosFolderPathResolved, imageFile); // path.join aquí es correcto para el nombre del archivo individual
+                            const imagePath = path.join(photosFolderPathResolved, imageFile);
                             await sock.sendMessage(remoteJid, { image: { url: imagePath } });
+                            // Pequeña pausa entre fotos para no saturar y asegurar entrega
                             await new Promise(resolve => setTimeout(resolve, 1000));
                         }
-                    }  else {
+                        if (imageFiles.length > 0) {
+                           console.log(`[${sessionConfig.name}] Todas las fotos enviadas a ${remoteJid}.`);
+                        }
+                    } else {
                         console.warn(`[${sessionConfig.name}] Carpeta de fotos no encontrada en: ${photosFolderPathResolved}`);
                     }
                 } catch (error) {
-                     console.error(`[${sessionConfig.name}] Error en INFO:`, error);
-                     await sock.sendMessage(remoteJid, { text: 'Error al procesar info.' });
+                    await sock.sendPresenceUpdate('paused', remoteJid); // Asegura que se limpie el "escribiendo" en caso de error
+                    console.error(`[${sessionConfig.name}] Error procesando INFO para ${remoteJid}:`, error);
+                    await sock.sendMessage(remoteJid, { text: 'Hubo un error al procesar tu solicitud de información. Por favor, intenta más tarde.' });
                 }
+                return; // Importante para no procesar otras lógicas si ya se manejó "info"
             }
         }
     });
@@ -238,8 +262,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-    // ... (HTML para la página de estado, igual que en la respuesta anterior)
-    // Por brevedad, no lo repito aquí, pero asegúrate que esté completo
     let html = `
         <!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Estado de Bots WhatsApp</title>
@@ -273,14 +295,14 @@ app.get('/', (req, res) => {
             else if (statusMsg.includes('Desconectado') || statusMsg.includes('Sesión cerrada') || statusMsg.includes('Error')) statusClass = 'status-error';
 
             html += `<li>
-                        <div>
-                            <strong>${session.name}</strong> (ID: ${session.id})<br>
-                            <span class="status ${statusClass}">${statusMsg}</span>
-                        </div>
-                        <div>
-                            ${activeQRCodes[session.id] ? `<a href="/qr/${session.id}" class="qr-link" target="_blank">Ver QR</a>` : ''}
-                        </div>
-                     </li>`;
+                            <div>
+                                <strong>${session.name}</strong> (ID: ${session.id})<br>
+                                <span class="status ${statusClass}">${statusMsg}</span>
+                            </div>
+                            <div>
+                                ${activeQRCodes[session.id] ? `<a href="/qr/${session.id}" class="qr-link" target="_blank">Ver QR</a>` : ''}
+                            </div>
+                           </li>`;
         });
     } else {
         html += "<li>No hay sesiones configuradas.</li>";
@@ -290,8 +312,6 @@ app.get('/', (req, res) => {
 });
 
 app.get('/qr/:sessionId', async (req, res) => {
-    // ... (HTML para la página de QR individual, igual que en la respuesta anterior)
-    // Por brevedad, no lo repito aquí, pero asegúrate que esté completo
     const sessionId = req.params.sessionId;
     const session = sessionsConfig.find(s => s.id === sessionId);
     const sessionName = session ? session.name : sessionId;
@@ -319,7 +339,7 @@ app.get('/qr/:sessionId', async (req, res) => {
                 <img src="${qrImage}" alt="Código QR para ${sessionName}"/>
                 <details><summary>Ver string del QR</summary><textarea rows="4" cols="35" readonly>${qrString}</textarea></details>
                 <p class="status-msg" style="color: #E87500;">Este QR es temporal. La página se refrescará.</p>
-                <script>setTimeout(() => window.location.reload(), 25000);</script> 
+                <script>setTimeout(() => window.location.reload(), 25000);</script>
             `;
         } catch (err) {
             console.error(`[WebQR] Error al generar imagen QR para ${sessionId}:`, err);
@@ -359,7 +379,7 @@ async function main() {
             sessionStatuses[config.id] = `Error Crítico al Iniciar ❌`;
         }
     }
-    
+
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`Servidor web para QR y estados escuchando en http://localhost:${PORT} (o la URL pública en Render)`);
         console.log(`Accede a los QR en: /qr/<session_id> (ej. /qr/jony_lager)`);
