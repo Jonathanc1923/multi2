@@ -28,7 +28,7 @@ const sessionsConfig = [
         sheetNameAndRange: 'Hoja1!A:C',
         dayLimitConfig: [ { limit: 5 }, { limit: 4 }, { limit: 2 } ],
         schedulerWelcomeMessage: "🎉 ¡Claro que sí! 🎉 Aquí tienes los horarios que encontré especialmente para ti:\n\n",
-        schedulerBookingQuestion: "✨ ¿Cuál de estos maravillosos horarios te gustaría reservar? 😊 ¡Dímelo para ayudarte!",
+        schedulerBookingQuestion: "✨ ¿Cuál de estos horarios te gustaría reservar?",
         schedulerNoSlotsMessage: "😢 ¡Vaya! Parece que por ahora no tenemos horarios disponibles. ¡Vuelve a consultarnos pronto! 🗓️✨",
         schedulerErrorMessage: "😕 ¡Oh no! Parece que tuve un problema al buscar los horarios."
     },
