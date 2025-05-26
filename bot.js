@@ -27,7 +27,7 @@ const sessionsConfig = [
         spreadsheetId: '1E-Vzmk-dPw4ko7C9uvpuVsp-mYxNio-33HaOmJvEM9A', // Ejemplo, reemplaza con tu ID real
         sheetNameAndRange: 'Hoja1!A:C', // Ejemplo, reemplaza con tu rango real
         dayLimitConfig: [ { limit: 5 }, { limit: 4 }, { limit: 2 } ], // Ejemplo
-        schedulerWelcomeMessage: "🎉 Aquí tienes los horarios disponibles. Estas reservando una sesión que incluye 7 imagenes finales + 1 cuadro 10x15, beneficio exclusivo para clientes nuevos:\n\n",
+        schedulerWelcomeMessage: "🎉 Aquí tienes los horarios disponibles. Estas reservando una sesión que incluye 7 imagenes finales + 1 Porta Retrato 10x15, beneficio exclusivo para clientes nuevos:\n\n",
         schedulerBookingQuestion: "Solo reserva un horario si tienes seguridad de que asistiras, ¿Cuál de estos horarios te gustaría reservar?",
         schedulerNoSlotsMessage: "😢 ¡Vaya! Parece que por ahora no tenemos horarios disponibles. ¡Vuelve a consultarnos pronto! 🗓️✨",
         schedulerErrorMessage: "😕 ¡Oh no! Parece que tuve un problema al buscar los horarios."
