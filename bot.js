@@ -47,7 +47,7 @@ const sessionsConfig = [
     }
 ];
 
-const infoKeywords = ["info", "recibida", "información", "informacion"];
+const infoKeywords = ["info", "recibida", "información", "informacion", "quiero saber"];
 const schedulerKeywords = ["jfjkdlldk"];
 
 function normalizeText(text) {
