@@ -163,15 +163,16 @@ async function startSession(sessionConfig) {
                     const noSlotsMsg = sessionConfig.schedulerNoSlotsMessage || "No hay horarios disponibles.";
                     const errorMsgBase = sessionConfig.schedulerErrorMessage || "Error al buscar horarios.";
 
-                    if (slots.error) {
+                    if (slots && slots.error) {
                         responseText = `${errorMsgBase} Detalles: ${slots.details}.`;
-                    } else if (!slots || slots.length === 0) {
+                    } else if (!Array.isArray(slots) || slots.length === 0) {
                         responseText = noSlotsMsg;
                     } else {
                         responseText = welcomeMsg;
                         slots.forEach(dayInfo => {
+                            const dayLabel = (dayInfo.day || '').toString();
                             let dayEmoticon = "🗓️";
-                            const dayLower = dayInfo.day.toLowerCase();
+                            const dayLower = dayLabel.toLowerCase();
                             if (dayLower.includes("lunes")) dayEmoticon = "✅";
                             else if (dayLower.includes("martes")) dayEmoticon = "✅";
                             else if (dayLower.includes("miércoles") || dayLower.includes("miercoles")) dayEmoticon = "✅";
@@ -180,8 +181,13 @@ async function startSession(sessionConfig) {
                             else if (dayLower.includes("sábado") || dayLower.includes("sabado")) dayEmoticon = "✅";
                             else if (dayLower.includes("domingo")) dayEmoticon = "✅";
 
-                            responseText += `${dayEmoticon} *${dayInfo.day}*:\n`;
-                            dayInfo.availableTimes.forEach(time => {
+                            // 🔧 Compatibilidad: usa .slots (nuevo) o .availableTimes (antiguo)
+                            const times = Array.isArray(dayInfo.slots)
+                                ? dayInfo.slots
+                                : (Array.isArray(dayInfo.availableTimes) ? dayInfo.availableTimes : []);
+
+                            responseText += `${dayEmoticon} *${dayLabel}*:\n`;
+                            times.forEach(time => {
                                 responseText += `   🕒  \`${time}\`\n`;
                             });
                             responseText += '\n';
@@ -380,6 +386,9 @@ async function main() {
             sessionStatuses[config.id] = `Error Crítico al Iniciar ❌`;
         }
     }
+
+    const app = express();
+    const PORT = process.env.PORT || 3000;
 
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`Servidor web para QR y estados escuchando en http://localhost:${PORT} (o la URL pública si se despliega)`);
