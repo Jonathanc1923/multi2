@@ -163,14 +163,17 @@ async function startSession(sessionConfig) {
                     const noSlotsMsg = sessionConfig.schedulerNoSlotsMessage || "No hay horarios disponibles.";
                     const errorMsgBase = sessionConfig.schedulerErrorMessage || "Error al buscar horarios.";
 
-                    if (slots && slots.error) {
+                    if (slots.error) {
                         responseText = `${errorMsgBase} Detalles: ${slots.details}.`;
-                    } else if (!Array.isArray(slots) || slots.length === 0) {
+                    } else if (!slots || slots.length === 0) {
                         responseText = noSlotsMsg;
                     } else {
+                        // Construye la respuesta con compatibilidad: usa .slots o .availableTimes
                         responseText = welcomeMsg;
-                        slots.forEach(dayInfo => {
-                            const dayLabel = (dayInfo.day || '').toString();
+
+                        slots.forEach((dayInfo = {}) => {
+                            const dayLabel = (dayInfo.day ?? '').toString();
+
                             let dayEmoticon = "🗓️";
                             const dayLower = dayLabel.toLowerCase();
                             if (dayLower.includes("lunes")) dayEmoticon = "✅";
@@ -181,10 +184,12 @@ async function startSession(sessionConfig) {
                             else if (dayLower.includes("sábado") || dayLower.includes("sabado")) dayEmoticon = "✅";
                             else if (dayLower.includes("domingo")) dayEmoticon = "✅";
 
-                            // 🔧 Compatibilidad: usa .slots (nuevo) o .availableTimes (antiguo)
+                            // 🔧 Compatibilidad con el scheduler: preferir .slots; fallback a .availableTimes
                             const times = Array.isArray(dayInfo.slots)
                                 ? dayInfo.slots
                                 : (Array.isArray(dayInfo.availableTimes) ? dayInfo.availableTimes : []);
+
+                            if (!times.length) return; // si ese día no tiene horarios, omitir
 
                             responseText += `${dayEmoticon} *${dayLabel}*:\n`;
                             times.forEach(time => {
@@ -192,9 +197,15 @@ async function startSession(sessionConfig) {
                             });
                             responseText += '\n';
                         });
-                        responseText += bookingQuestion;
+
+                        // Si no quedó nada (no hubo días con horarios), enviar mensaje de "sin horarios"
+                        if (responseText.trim() === welcomeMsg.trim()) {
+                            responseText = noSlotsMsg;
+                        } else {
+                            responseText += bookingQuestion;
+                        }
                     }
-                    
+
                     console.log(`[${sessionConfig.name}] Horarios preparados para ${remoteJid}. Iniciando demora de 10 segundos.`);
                     await new Promise(resolve => setTimeout(resolve, 10000)); // Demora de 10 segundos
                     console.log(`[${sessionConfig.name}] Demora completada. Enviando horarios a ${remoteJid}.`);
@@ -386,9 +397,6 @@ async function main() {
             sessionStatuses[config.id] = `Error Crítico al Iniciar ❌`;
         }
     }
-
-    const app = express();
-    const PORT = process.env.PORT || 3000;
 
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`Servidor web para QR y estados escuchando en http://localhost:${PORT} (o la URL pública si se despliega)`);
