@@ -1,85 +1,142 @@
 // googleSheetScheduler.js
-import { google } from "googleapis";
-import fs from "fs";
+const { google } = require('googleapis');
+const path = require('path');
 
-const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
 
 let auth;
-
-// ===========================
-// Inicializar credenciales
-// ===========================
+// Credenciales: primero variable de entorno GOOGLE_CREDENTIALS (JSON string), si no, credentials.json local
 if (process.env.GOOGLE_CREDENTIALS) {
-  // Render u otro server con variable de entorno
+  console.log('[Scheduler] Usando credenciales desde GOOGLE_CREDENTIALS');
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-
   auth = new google.auth.JWT(
     credentials.client_email,
     null,
-    credentials.private_key.replace(/\\n/g, "\n"), // convierte los \n en saltos reales
-    SCOPES
-  );
-} else if (fs.existsSync("credentials.json")) {
-  // Local con archivo
-  const credentials = JSON.parse(fs.readFileSync("credentials.json", "utf8"));
-
-  auth = new google.auth.JWT(
-    credentials.client_email,
-    null,
-    credentials.private_key,
+    credentials.private_key.replace(/\\n/g, '\n'),
     SCOPES
   );
 } else {
-  throw new Error("No se encontraron credenciales de Google (ni variable ni archivo)");
+  const KEYFILEPATH = path.join(__dirname, 'credentials.json');
+  console.log(`[Scheduler] Usando credenciales desde archivo: ${KEYFILEPATH}`);
+  auth = new google.auth.GoogleAuth({
+    keyFile: KEYFILEPATH,
+    scopes: SCOPES,
+  });
 }
 
-const sheets = google.sheets({ version: "v4", auth });
+/**
+ * Selecciona M índices aproximadamente equiespaciados de un array de longitud N (incluye primero y último).
+ * Si M >= N, devuelve todos.
+ */
+function pickEvenly(times, M) {
+  const N = times.length;
+  if (M >= N) return [...times];
 
-// ===========================
-// Función para obtener horarios
-// ===========================
-export async function getAvailableSlots(spreadsheetId, range, limitPerDay = 3) {
+  const step = (N - 1) / (M - 1);
+  const chosen = [];
+  const used = new Set();
+
+  for (let j = 0; j < M; j++) {
+    let idx = Math.round(j * step);
+    if (idx < 0) idx = 0;
+    if (idx > N - 1) idx = N - 1;
+    if (!used.has(idx)) {
+      used.add(idx);
+      chosen.push(times[idx]);
+    }
+  }
+
+  // Si por redondeos quedaron menos de M, completar con los no usados en orden
+  for (let i = 0; chosen.length < M && i < N; i++) {
+    if (!used.has(i)) {
+      used.add(i);
+      chosen.push(times[i]);
+    }
+  }
+  return chosen;
+}
+
+/**
+ * Obtiene los días y horarios disponibles desde una Google Spreadsheet específica.
+ * Solo devuelve los primeros 3 días con la lógica: [4, 4, 3] slots por día.
+ * @param {string} spreadsheetId
+ * @param {string} sheetRange  Ej. 'Hoja1!A:C'
+ * @returns {Promise<Array<{day: string, slots: string[]}> | {error: string, details?: string}>}
+ */
+async function getAvailableSlots(spreadsheetId, sheetRange) {
+  console.log(`[Scheduler] getAvailableSlots -> sheet: ${spreadsheetId}, range: ${sheetRange}`);
+
   try {
-    const res = await sheets.spreadsheets.values.get({
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+
+    const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range,
+      range: sheetRange,
     });
 
-    const rows = res.data.values || [];
-    if (!rows.length) return [];
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      console.log('[Scheduler] No hay filas en el rango.');
+      return [];
+    }
 
-    // Suponemos formato: [ Día, Hora, Cliente ]
-    const grouped = {};
+    // Construir estructura { day, availableTimes[] } leyendo columna A (día), B (hora), C (cliente/estado)
+    const orderedDaysData = [];
+    const dayMap = new Map();
+    let currentDay = null;
 
-    for (const row of rows) {
-      const [day, hour, client] = row;
+    rows.forEach((row, idx) => {
+      const dayFromCell = (row[0] || '').toString().trim();  // Col A
+      const time = (row[1] || '').toString().trim();         // Col B
+      const status = (row[2] || '').toString().trim();       // Col C (ocupado si NO está vacío)
 
-      if (!day || !hour) continue;
+      if (dayFromCell) currentDay = dayFromCell;
+      const hasDay = currentDay && currentDay.trim() !== '';
+      const hasTime = time !== '';
 
-      if (!grouped[day]) grouped[day] = [];
-      // Solo mostrar horarios libres (sin cliente asignado)
-      if (!client || client.trim() === "") {
-        grouped[day].push(hour);
+      if (hasDay && hasTime) {
+        const isFree = status === ''; // libre solo si la columna C está vacía
+        if (isFree) {
+          if (!dayMap.has(currentDay)) {
+            const obj = { day: currentDay, availableTimes: [] };
+            dayMap.set(currentDay, obj);
+            orderedDaysData.push(obj); // mantiene el orden de aparición
+          }
+          dayMap.get(currentDay).availableTimes.push(time);
+        }
+      }
+    });
+
+    if (orderedDaysData.length === 0) {
+      console.log('[Scheduler] No hay horarios libres.');
+      return [];
+    }
+
+    // Aplicar tu lógica: Día1→4, Día2→4, Día3→3 (si hay menos, mostrar los que haya)
+    const perDayTargets = [4, 4, 3];
+    const result = [];
+
+    for (let i = 0; i < Math.min(3, orderedDaysData.length); i++) {
+      const { day, availableTimes } = orderedDaysData[i];
+
+      if (!Array.isArray(availableTimes) || availableTimes.length === 0) continue;
+
+      const target = perDayTargets[i]; // 4, 4, 3
+      const chosen = pickEvenly(availableTimes, target);
+
+      if (chosen.length > 0) {
+        result.push({ day, slots: chosen });
       }
     }
 
-    // Aplicar límite de horarios por día
-    const result = Object.entries(grouped).map(([day, hours]) => {
-      hours.sort(); // ordenar horas
-      if (hours.length > limitPerDay) {
-        // Seleccionar primero, último y algunos intermedios
-        const first = hours[0];
-        const last = hours[hours.length - 1];
-        const middle = hours[Math.floor(hours.length / 2)];
-        return { day, slots: [first, middle, last] };
-      } else {
-        return { day, slots: hours };
-      }
-    });
-
+    console.log('[Scheduler] Resultado:', JSON.stringify(result));
     return result;
+
   } catch (err) {
-    console.error("Error leyendo Google Sheets:", err.message);
-    return [];
+    console.error('[Scheduler] Error en getAvailableSlots:', err);
+    return { error: 'Error Interno del Scheduler', details: err.message || String(err) };
   }
 }
+
+module.exports = { getAvailableSlots };
