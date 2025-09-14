@@ -1,7 +1,7 @@
 const { google } = require('googleapis');
 const path = require('path');
 
-// --- CONFIGURACIÓN GENERAL DEL MÓDULO ---
+// --- CONFIGURACIÓN GENERAL DEL MÓDULO q ---
 const KEYFILEPATH = path.join(__dirname, 'credentials.json');
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
 
