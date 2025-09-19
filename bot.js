@@ -48,7 +48,7 @@ const sessionsConfig = [
 ];
 
 const infoKeywords = ["info", "recibida", "información", "informacion", "quiero saber"];
-const schedulerKeywords = ["horarios", "fecha", "fechas", "quiero"];
+const schedulerKeywords = ["fdgdgdg", "hfhgfhfd"];
 
 function normalizeText(text) {
     if (!text) return '';
