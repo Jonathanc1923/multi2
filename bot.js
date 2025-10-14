@@ -1,4 +1,4 @@
-// bot.js — versión Render FIX ✅
+// bot.js — versión Render FIX ✅ (con delay aleatorio 4–7s antes de responder)
 
 const {
   default: makeWASocket,
@@ -20,6 +20,9 @@ let activeQRCodes = {};
 let sessionStatuses = {};
 const sessionLocks = new Map();
 const sockets = new Map();
+
+// helper de espera
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // Configuración de sesiones
 const sessionsConfig = [
@@ -111,15 +114,25 @@ async function startSession(cfg) {
       const chat = msg.key.remoteJid;
       if (containsInfoKeyword(body)) {
         console.log(`[${name}] Palabra clave INFO detectada`);
+
+        // ✨ Delay aleatorio entre 4 y 7 segundos antes de responder
+        const delay = Math.floor(Math.random() * (7000 - 4000 + 1)) + 4000;
+        try { await sock.sendPresenceUpdate('composing', chat); } catch {}
+        console.log(`[${name}] Esperando ${delay / 1000}s antes de responder a ${chat}...`);
+        await sleep(delay);
+        try { await sock.sendPresenceUpdate('paused', chat); } catch {}
+
         const info = fs.existsSync(cfg.infoFilePath)
           ? fs.readFileSync(cfg.infoFilePath, 'utf-8')
           : 'Información no disponible.';
 
         await sock.sendMessage(chat, { text: info });
+
         if (fs.existsSync(cfg.photosFolderPath)) {
           const files = fs.readdirSync(cfg.photosFolderPath).filter(f => /\.(jpe?g|png)$/i.test(f));
           for (const f of files) {
             await sock.sendMessage(chat, { image: { url: path.join(cfg.photosFolderPath, f) } });
+            await sleep(700); // pequeña pausa entre fotos (opcional)
           }
         }
       }
